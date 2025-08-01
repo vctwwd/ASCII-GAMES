@@ -1,0 +1,90 @@
+[
+    {
+        "id": 1,
+        "name": "治疗药剂",
+        "description": "恢复50点生命值",
+        "type": "consumable",
+        "icon": "❤️",
+        "max_stack": 5,
+        "usage_type": "single",
+        "effects": [
+            {"type": "health", "value": 50}
+        ]
+    },
+    {
+        "id": 2,
+        "name": "魔法药剂",
+        "description": "恢复30点技能值",
+        "type": "consumable",
+        "icon": "🔮",
+        "max_stack": 3,
+        "usage_type": "single",
+        "effects": [
+            {"type": "sp", "value": 30}
+        ]
+    },
+    {
+        "id": 3,
+        "name": "无限面包",
+        "description": "无限使用的食物，恢复10点生命值",
+        "type": "consumable",
+        "icon": "🍞",
+        "max_stack": 1,
+        "usage_type": "infinite",
+        "effects": [
+            {"type": "health", "value": 10}
+        ]
+    },
+    {
+        "id": 4,
+        "name": "铁剑",
+        "description": "基础武器，攻击力+5",
+        "type": "equipment",
+        "icon": "⚔️",
+        "max_stack": 1,
+        "slot": "weapon",
+        "effects": [
+            {"type": "attack", "value": 5}
+        ]
+    },
+    {
+        "id": 5,
+        "name": "皮甲",
+        "description": "基础护甲，防御力+3",
+        "type": "equipment",
+        "icon": "🛡️",
+        "max_stack": 1,
+        "slot": "armor",
+        "effects": [
+            {"type": "defense", "value": 3}
+        ]
+    },
+    {
+        "id": 6,
+        "name": "银戒指",
+        "description": "增加5点技能值上限",
+        "type": "equipment",
+        "icon": "💍",
+        "max_stack": 1,
+        "slot": "accessory",
+        "effects": [
+            {"type": "max_sp", "value": 5}
+        ]
+    },
+    {
+        "id": 7,
+        "name": "铁矿石",
+        "description": "用于锻造装备",
+        "type": "material",
+        "icon": "⛏️",
+        "max_stack": 20
+    },
+    {
+        "id": 8,
+        "name": "草药",
+        "description": "用于制作药剂",
+        "type": "material",
+        "icon": "🌿",
+        "max_stack": 15
+    }
+]
