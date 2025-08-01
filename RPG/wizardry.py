@@ -2,10 +2,9 @@ from abc import ABC, abstractmethod
 import curses
 import math
 import time
-import sys
 
 
-# ====================== 1. 参数类 ======================
+# ====================== 1. 渲染组件 ======================
 class RenderContext:
     """渲染上下文，封装渲染所需参数"""
 
@@ -19,80 +18,58 @@ class RenderContext:
         self.player_dir_y = player_dir_y  # 玩家方向向量Y
 
 
-# ====================== 2. 行为策略 ======================
-class CellBehavior(ABC):
-    """单元格行为策略基类"""
+class Raycaster:
+    """光线投射类"""
 
-    @abstractmethod
-    def update(self, delta_time): pass
+    def __init__(self, game_map):
+        self.game_map = game_map
+        self.pos_x = self.pos_y = 1.5
+        self.dir_x, self.dir_y = 1, 0
+        self.plane_x, self.plane_y = 0, -0.66
+        self.move_distance = 1.0
+        self.rotate_angle = math.pi / 2
+        self.target_dir_x = self.dir_x
+        self.target_dir_y = self.dir_y
+        self.target_plane_x = self.plane_x
+        self.target_plane_y = self.plane_y
+        self.rotating = False
+        self.rotation_speed = 0.2
+        self.rotation_progress = 0.0
 
-    @abstractmethod
-    def on_interact(self, game, x, y): pass
+    def rotate(self, clockwise=True):
+        rot = self.rotate_angle * (-1 if clockwise else 1)
+        self.target_dir_x = self.dir_x * math.cos(rot) - self.dir_y * math.sin(rot)
+        self.target_dir_y = self.dir_x * math.sin(rot) + self.dir_y * math.cos(rot)
+        self.target_plane_x = self.plane_x * math.cos(rot) - self.plane_y * math.sin(rot)
+        self.target_plane_y = self.plane_x * math.sin(rot) + self.plane_y * math.cos(rot)
+        self.rotating = True
+        self.rotation_progress = 0.0
 
-    @abstractmethod
-    def on_player_step(self, game, x, y): pass
+    def update_rotation(self):
+        if not self.rotating: return
+        self.rotation_progress += self.rotation_speed
+        if self.rotation_progress >= 1.0:
+            self.dir_x, self.dir_y = self.target_dir_x, self.target_dir_y
+            self.plane_x, self.plane_y = self.target_plane_x, self.target_plane_y
+            self.rotating = False
+            return
+        self.dir_x = self.dir_x * (1 - self.rotation_progress) + self.target_dir_x * self.rotation_progress
+        self.dir_y = self.dir_y * (1 - self.rotation_progress) + self.target_dir_y * self.rotation_progress
+        self.plane_x = self.plane_x * (1 - self.rotation_progress) + self.target_plane_x * self.rotation_progress
+        self.plane_y = self.plane_y * (1 - self.rotation_progress) + self.target_plane_y * self.rotation_progress
 
+    def move(self, forward=True):
+        move = self.move_distance * (1 if forward else -1)
+        new_x = self.pos_x + self.dir_x * move
+        new_y = self.pos_y + self.dir_y * move
+        if not self.game_map.is_wall(int(new_x), int(new_y)):
+            self.pos_x = int(new_x) + 0.5
+            self.pos_y = int(new_y) + 0.5
 
-class DoorBehavior(CellBehavior):
-    """门的行为策略实现"""
-
-    def __init__(self):
-        self.door_open = False
-        self.door_animating = False
-        self.door_animation_type = None
-        self.door_animation_progress = 0.0
-
-    def update(self, delta_time):
-        if self.door_animating:
-            self.door_animation_progress += delta_time * 2.0
-            if self.door_animation_progress >= 1.0:
-                self.door_animating = False
-                self.door_open = not self.door_open
-                self.door_animation_type = None
-
-    def on_interact(self, game, x, y):
-        if not self.door_animating:
-            self.door_animating = True
-            self.door_animation_progress = 0.0
-            if self.door_open:
-                self.door_animation_type = "closing"
-            else:
-                self.door_animation_type = "opening"
-
-    def on_player_step(self, game, x, y):
-        pass
-
-
-class InteractiveFloorBehavior(CellBehavior):
-    """互动地板行为策略实现"""
-
-    def __init__(self, effect_type=None, can_retrigger=False):
-        self.effect_type = effect_type
-        self.can_retrigger = can_retrigger
-        self.triggered = False
-        self.trigger_time = 0
-
-    def update(self, delta_time): pass
-
-    def on_interact(self, game, x, y): pass
-
-    def on_player_step(self, game, x, y):
-        if not self.triggered or self.can_retrigger:
-            self.triggered = True
-            self.trigger_time = time.time()
-            return True
-        return False
-
-
-# ====================== 3. 渲染组件 ======================
-class CellRenderer(ABC):
-    """单元格渲染组件基类"""
-
-    @abstractmethod
-    def render_3d(self, context: RenderContext) -> str: pass
-
-    @abstractmethod
-    def get_minimap_char(self) -> str: pass
+    def get_front_cell(self):
+        front_x = int(self.pos_x + self.dir_x * 0.7)
+        front_y = int(self.pos_y + self.dir_y * 0.7)
+        return self.game_map.get_cell(front_x, front_y)
 
 
 class RaycastResult:
@@ -119,6 +96,16 @@ class RaycastResult:
             player_dir_y=self.player_dir_y
         )
         return self.cell.renderer.render_3d(context)
+
+
+class CellRenderer(ABC):
+    """单元格渲染组件基类"""
+
+    @abstractmethod
+    def render_3d(self, context: RenderContext) -> str: pass
+
+    @abstractmethod
+    def get_minimap_char(self) -> str: pass
 
 
 class WallRenderer(CellRenderer):
@@ -196,6 +183,14 @@ class DoorRenderer(CellRenderer):
         return " " if self.behavior.door_open else "+"
 
 
+class FloorRenderer(CellRenderer):
+    """普通地板渲染组件实现"""
+
+    def render_3d(self, context: RenderContext) -> str: return " "
+
+    def get_minimap_char(self): return "."
+
+
 class InteractiveFloorRenderer(CellRenderer):
     """互动地板渲染组件实现"""
 
@@ -207,15 +202,72 @@ class InteractiveFloorRenderer(CellRenderer):
     def get_minimap_char(self): return "*" if self.behavior.triggered else "."
 
 
-class FloorRenderer(CellRenderer):
-    """普通地板渲染组件实现"""
+# ====================== 2. 行为组件 ======================
+class CellBehavior(ABC):
+    """单元格行为策略基类"""
 
-    def render_3d(self, context: RenderContext) -> str: return " "
+    @abstractmethod
+    def update(self, delta_time): pass
 
-    def get_minimap_char(self): return "."
+    @abstractmethod
+    def on_interact(self, game, x, y): pass
+
+    @abstractmethod
+    def on_player_step(self, game, x, y): pass
 
 
-# ====================== 4. 访问者模式 ======================
+class DoorBehavior(CellBehavior):
+    """门的行为策略实现"""
+
+    def __init__(self):
+        self.door_open = False
+        self.door_animating = False
+        self.door_animation_type = None
+        self.door_animation_progress = 0.0
+
+    def update(self, delta_time):
+        if self.door_animating:
+            self.door_animation_progress += delta_time * 2.0
+            if self.door_animation_progress >= 1.0:
+                self.door_animating = False
+                self.door_open = not self.door_open
+                self.door_animation_type = None
+
+    def on_interact(self, game, x, y):
+        if not self.door_animating:
+            self.door_animating = True
+            self.door_animation_progress = 0.0
+            if self.door_open:
+                self.door_animation_type = "closing"
+            else:
+                self.door_animation_type = "opening"
+
+    def on_player_step(self, game, x, y):
+        pass
+
+
+class InteractiveFloorBehavior(CellBehavior):
+    """互动地板行为策略实现"""
+
+    def __init__(self, effect_type=None, can_retrigger=False):
+        self.effect_type = effect_type
+        self.can_retrigger = can_retrigger
+        self.triggered = False
+        self.trigger_time = 0
+
+    def update(self, delta_time): pass
+
+    def on_interact(self, game, x, y): pass
+
+    def on_player_step(self, game, x, y):
+        if not self.triggered or self.can_retrigger:
+            self.triggered = True
+            self.trigger_time = time.time()
+            return True
+        return False
+
+
+# ====================== 3. 访问组件 ======================
 class MapVisitor(ABC):
     """地图访问者基类"""
 
@@ -260,7 +312,7 @@ class StepHandler(MapVisitor):
             cell.behavior.on_player_step(self.game, x, y)
 
 
-# ====================== 5. 状态信息提供者 ======================
+# ====================== 4. 状态组件 ======================
 class StatusInfoProvider(ABC):
     """状态信息提供者基类"""
 
@@ -293,7 +345,7 @@ class FloorStatusProvider(StatusInfoProvider):
         return " [互动地板]" + ("已触发" if current_cell.behavior.triggered else "未触发")
 
 
-# ====================== 6. 地图与单元格 ======================
+# ====================== 5. 地图单元格 ======================
 class MapCell:
     """通用地图单元格"""
 
@@ -391,67 +443,24 @@ class GameMap:
                 self.grid[i][j].accept_visitor(visitor, i, j)
 
 
-# ====================== 7. 光线投射器 ======================
-class Raycaster:
-    """光线投射类"""
+# ====================== 6. 游戏渲染器 ======================
+class StatusInfoManager:
+    """状态信息管理器"""
 
-    def __init__(self, game_map):
-        self.game_map = game_map
-        self.pos_x = self.pos_y = 1.5
-        self.dir_x, self.dir_y = 1, 0
-        self.plane_x, self.plane_y = 0, -0.66
-        self.move_distance = 1.0
-        self.rotate_angle = math.pi / 2
-        self.target_dir_x = self.dir_x
-        self.target_dir_y = self.dir_y
-        self.target_plane_x = self.plane_x
-        self.target_plane_y = self.plane_y
-        self.rotating = False
-        self.rotation_speed = 0.2
-        self.rotation_progress = 0.0
+    def __init__(self):
+        self.providers = [DoorStatusProvider(), FloorStatusProvider()]
 
-    def rotate(self, clockwise=True):
-        rot = self.rotate_angle * (-1 if clockwise else 1)
-        self.target_dir_x = self.dir_x * math.cos(rot) - self.dir_y * math.sin(rot)
-        self.target_dir_y = self.dir_x * math.sin(rot) + self.dir_y * math.cos(rot)
-        self.target_plane_x = self.plane_x * math.cos(rot) - self.plane_y * math.sin(rot)
-        self.target_plane_y = self.plane_x * math.sin(rot) + self.plane_y * math.cos(rot)
-        self.rotating = True
-        self.rotation_progress = 0.0
-
-    def update_rotation(self):
-        if not self.rotating: return
-        self.rotation_progress += self.rotation_speed
-        if self.rotation_progress >= 1.0:
-            self.dir_x, self.dir_y = self.target_dir_x, self.target_dir_y
-            self.plane_x, self.plane_y = self.target_plane_x, self.target_plane_y
-            self.rotating = False
-            return
-        self.dir_x = self.dir_x * (1 - self.rotation_progress) + self.target_dir_x * self.rotation_progress
-        self.dir_y = self.dir_y * (1 - self.rotation_progress) + self.target_dir_y * self.rotation_progress
-        self.plane_x = self.plane_x * (1 - self.rotation_progress) + self.target_plane_x * self.rotation_progress
-        self.plane_y = self.plane_y * (1 - self.rotation_progress) + self.target_plane_y * self.rotation_progress
-
-    def move(self, forward=True):
-        move = self.move_distance * (1 if forward else -1)
-        new_x = self.pos_x + self.dir_x * move
-        new_y = self.pos_y + self.dir_y * move
-        if not self.game_map.is_wall(int(new_x), int(new_y)):
-            self.pos_x = int(new_x) + 0.5
-            self.pos_y = int(new_y) + 0.5
-
-    def get_front_cell(self):
-        front_x = int(self.pos_x + self.dir_x * 0.7)
-        front_y = int(self.pos_y + self.dir_y * 0.7)
-        return self.game_map.get_cell(front_x, front_y)
+    def get_status_info(self, game) -> str:
+        x, y = int(game.raycaster.pos_x), int(game.raycaster.pos_y)
+        return "".join(provider.get_status_info(game, x, y) for provider in self.providers)
 
 
-# ====================== 8. 游戏渲染器 ======================
 class GameRenderer:
     """游戏渲染器"""
 
     def __init__(self):
         self.status_manager = StatusInfoManager()
+        self.boundary_wall = CellFactory.create_wall("outer_wall")
 
     def render_game(self, stdscr, game):
         height, width = stdscr.getmaxyx()
@@ -518,21 +527,15 @@ class GameRenderer:
         self._render_minimap(stdscr, game.raycaster, render_width)
 
     def _cast_ray(self, raycaster, ray_dir_x, ray_dir_y):
-        # 玩家当前位置
         pos_x, pos_y = raycaster.pos_x, raycaster.pos_y
-
-        # 玩家所在网格位置
         map_x, map_y = int(pos_x), int(pos_y)
 
-        # 光线方向向量的长度（用于防止除零错误）
         ray_length_x = abs(1 / ray_dir_x) if ray_dir_x != 0 else float('inf')
         ray_length_y = abs(1 / ray_dir_y) if ray_dir_y != 0 else float('inf')
 
-        # 步进方向
         step_x = 1 if ray_dir_x >= 0 else -1
         step_y = 1 if ray_dir_y >= 0 else -1
 
-        # 到下一个网格边界的初始距离
         if ray_dir_x < 0:
             side_dist_x = (pos_x - map_x) * ray_length_x
         else:
@@ -543,38 +546,39 @@ class GameRenderer:
         else:
             side_dist_y = (map_y + 1.0 - pos_y) * ray_length_y
 
-        # 光线投射循环
         hit = 0
         side = 0
         door_cell = None
+        cell = None  # 显式初始化为None
 
         while hit == 0:
-            # 跳转到下一个网格边界
             if side_dist_x < side_dist_y:
                 side_dist_x += ray_length_x
                 map_x += step_x
-                side = 0  # 垂直面
+                side = 0
             else:
                 side_dist_y += ray_length_y
                 map_y += step_y
-                side = 1  # 水平面
+                side = 1
 
-            # 检查是否超出地图边界
+            # 检查位置是否有效
             if not raycaster.game_map.is_valid_position(map_x, map_y):
                 hit = 1
+                cell = self.boundary_wall  # 使用边界墙
                 break
 
-            # 获取当前网格的单元格
             cell = raycaster.game_map.get_cell(map_x, map_y)
 
-            # 检查是否是门（关闭或动画中）
             if isinstance(cell.behavior, DoorBehavior) and (
                     not cell.behavior.door_open or cell.behavior.door_animating):
                 door_cell = cell
                 hit = 1
-            # 检查是否是墙
             elif cell.is_wall:
                 hit = 1
+
+        # 确保cell有值
+        if cell is None:
+            cell = self.boundary_wall
 
         # 计算光线距离
         if side == 0:
@@ -582,14 +586,13 @@ class GameRenderer:
         else:
             perp_dist = (map_y - pos_y + (1 - step_y) / 2) / ray_dir_y
 
-        # 计算墙面位置（用于纹理渲染）
+        # 计算墙面位置
         if side == 0:
             wall_x = pos_y + perp_dist * ray_dir_y
         else:
             wall_x = pos_x + perp_dist * ray_dir_x
         wall_x -= math.floor(wall_x)
 
-        # 返回光线投射结果（包含玩家方向信息）
         return RaycastResult(
             cell=door_cell or cell,
             side=side,
@@ -633,19 +636,7 @@ class GameRenderer:
         return '↓' if 45 <= angle < 135 else '←' if 135 <= angle < 225 else '↑' if 225 <= angle < 315 else '→'
 
 
-# ====================== 9. 状态信息管理器 ======================
-class StatusInfoManager:
-    """状态信息管理器"""
-
-    def __init__(self):
-        self.providers = [DoorStatusProvider(), FloorStatusProvider()]
-
-    def get_status_info(self, game) -> str:
-        x, y = int(game.raycaster.pos_x), int(game.raycaster.pos_y)
-        return "".join(provider.get_status_info(game, x, y) for provider in self.providers)
-
-
-# ====================== 10. 主游戏类 ======================
+# ====================== 7. 主游戏类 ======================
 class RPG:
     """主游戏类"""
 
